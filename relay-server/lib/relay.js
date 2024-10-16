@@ -34,6 +34,9 @@ export class RealtimeRelay {
     this.log(`Connecting with key "${this.apiKey.slice(0, 3)}..."`);
     const client = new RealtimeClient({ apiKey: this.apiKey });
 
+    // Add the backend-only tool
+    this.addBackendTools(client);
+
     // Relay: OpenAI Realtime API Event -> Browser Event
     client.realtime.on('server.*', (event) => {
       this.log(`Relaying "${event.type}" to Client`);
@@ -42,7 +45,6 @@ export class RealtimeRelay {
     client.realtime.on('close', () => ws.close());
 
     // Relay: Browser Event -> OpenAI Realtime API Event
-    // We need to queue data waiting for the OpenAI connection
     const messageQueue = [];
     const messageHandler = (data) => {
       try {
@@ -54,6 +56,7 @@ export class RealtimeRelay {
         this.log(`Error parsing event from client: ${data}`);
       }
     };
+
     ws.on('message', (data) => {
       if (!client.isConnected()) {
         messageQueue.push(data);
@@ -61,6 +64,7 @@ export class RealtimeRelay {
         messageHandler(data);
       }
     });
+
     ws.on('close', () => client.disconnect());
 
     // Connect to OpenAI Realtime API
@@ -72,10 +76,44 @@ export class RealtimeRelay {
       ws.close();
       return;
     }
+
     this.log(`Connected to OpenAI successfully!`);
     while (messageQueue.length) {
       messageHandler(messageQueue.shift());
     }
+  }
+
+  /**
+   * Define and add backend-only tools to the RealtimeClient
+   * These tools are for backend use only and should never be exposed to the frontend.
+   */
+  addBackendTools(client) {
+    client.addTool(
+      {
+        name: 'test_tool',
+        description: 'Logs a message on the server for debugging.',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: {
+              type: 'string',
+              description: 'The key to log.',
+            },
+            value: {
+              type: 'string',
+              description: 'The value to log.',
+            },
+          },
+          required: ['key', 'value'],
+        },
+      },
+      async ({ key, value }) => {
+        this.log(`Backend test_tool invoked: key=${key}, value=${value}`);
+        return { ok: true }; // You can return any result if needed
+      }
+    );
+
+    // Optionally add other tools here if necessary
   }
 
   log(...args) {
