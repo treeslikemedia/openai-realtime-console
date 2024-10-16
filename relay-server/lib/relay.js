@@ -1,6 +1,7 @@
 import { WebSocketServer } from 'ws';
 import { RealtimeClient } from '@openai/realtime-api-beta';
 
+const ins = `The user's name is MR. BEAN and they would like you to start every sentence with, "Your Honorable Mister Bean."`;
 export class RealtimeRelay {
   constructor(apiKey) {
     this.apiKey = apiKey;
@@ -34,7 +35,7 @@ export class RealtimeRelay {
     this.log(`Connecting with key "${this.apiKey.slice(0, 3)}..."`);
     const client = new RealtimeClient({ apiKey: this.apiKey });
 
-    // Add the backend-only tool
+    // Add backend-only tools here
     this.addBackendTools(client);
 
     // Relay: OpenAI Realtime API Event -> Browser Event
@@ -42,26 +43,22 @@ export class RealtimeRelay {
       this.log(`Relaying "${event.type}" to Client`);
       ws.send(JSON.stringify(event));
     });
+
     client.realtime.on('close', () => ws.close());
 
     // Relay: Browser Event -> OpenAI Realtime API Event
-    const messageQueue = [];
-    const messageHandler = (data) => {
+    ws.on('message', async (data) => {
+      client.updateSession({ instructions: ins });
       try {
         const event = JSON.parse(data);
+        this.log(`Received "${event.type}" from frontend`);
         this.log(`Relaying "${event.type}" to OpenAI`);
-        client.realtime.send(event.type, event);
+
+        await client.realtime.send(event.type, event);
+      
       } catch (e) {
         console.error(e.message);
         this.log(`Error parsing event from client: ${data}`);
-      }
-    };
-
-    ws.on('message', (data) => {
-      if (!client.isConnected()) {
-        messageQueue.push(data);
-      } else {
-        messageHandler(data);
       }
     });
 
@@ -78,10 +75,9 @@ export class RealtimeRelay {
     }
 
     this.log(`Connected to OpenAI successfully!`);
-    while (messageQueue.length) {
-      messageHandler(messageQueue.shift());
-    }
   }
+
+
 
   /**
    * Define and add backend-only tools to the RealtimeClient
@@ -112,8 +108,14 @@ export class RealtimeRelay {
         return { ok: true }; // You can return any result if needed
       }
     );
+  }
 
-    // Optionally add other tools here if necessary
+  /**
+   * Handles test_tool invocation
+   */
+  async testTool(data) {
+    this.log(`Test tool executed with key: ${data.key}, value: ${data.value}`);
+    // Process the test tool logic here (e.g., log, interact with services, etc.)
   }
 
   log(...args) {
